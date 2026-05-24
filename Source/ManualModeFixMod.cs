@@ -22,20 +22,33 @@ namespace AAAAManualModeFix
             {
                 var harmony = new Harmony("fishundbug.AAAAManualModeFix");
 
-                // 1. 动态注册：手动模式自动解除 Bug 修复补丁
                 var watcherType = AccessTools.TypeByName("seekiworks_AllowedAreaAutomaticAdapter.Watcher");
                 if (watcherType != null)
                 {
+                    // 1. 动态注册：手动模式自动解除 Bug 修复补丁 + 警报解除雷达联动
                     var normalModeMethod = AccessTools.Method(watcherType, "AllowedAreaChangeNormalMode");
                     if (normalModeMethod != null)
                     {
                         var prefixMethod = AccessTools.Method(typeof(AllowedAreaChangeNormalModePatch), nameof(AllowedAreaChangeNormalModePatch.Prefix));
-                        harmony.Patch(normalModeMethod, prefix: new HarmonyMethod(prefixMethod));
-                        Log.Message("[AAAAManualModeFix] 成功应用：手动避难自动解除修复补丁。");
+                        var postfixMethod = AccessTools.Method(typeof(AllowedAreaChangeNormalModePatch), nameof(AllowedAreaChangeNormalModePatch.Postfix));
+                        harmony.Patch(normalModeMethod, 
+                            prefix: new HarmonyMethod(prefixMethod),
+                            postfix: new HarmonyMethod(postfixMethod)
+                        );
+                        Log.Message("[AAAAManualModeFix] 成功应用：手动避难自动解除修复与解除避难雷达联动补丁。");
+                    }
+
+                    // 2. 动态注册：进入避难雷达联动补丁
+                    var dangerModeMethod = AccessTools.Method(watcherType, "AllowedAreaChangeDangerMode");
+                    if (dangerModeMethod != null)
+                    {
+                        var dangerPostfix = AccessTools.Method(typeof(AllowedAreaChangeDangerModePatch), nameof(AllowedAreaChangeDangerModePatch.Postfix));
+                        harmony.Patch(dangerModeMethod, postfix: new HarmonyMethod(dangerPostfix));
+                        Log.Message("[AAAAManualModeFix] 成功应用：进入避难雷达联动补丁。");
                     }
                 }
 
-                // 2. 动态注册：禁用休眠过滤拦截补丁 (拦截原模组的 Patch 自身)
+                // 3. 动态注册：禁用休眠过滤拦截补丁 (拦截原模组的 Patch 自身)
                 var dangerWatcherPatchType = AccessTools.TypeByName("seekiworks_AllowedAreaAutomaticAdapter.Patch_DangerWatcher");
                 if (dangerWatcherPatchType != null)
                 {
@@ -78,14 +91,13 @@ namespace AAAAManualModeFix
             );
             listing.Gap(4f);
             
-            // 详细功能介绍文案
             Text.Font = GameFont.Tiny;
             GUI.color = Color.gray;
             listing.Label("介绍：启用该项后，当在游戏内开启手动避难模式时，哪怕外部机械集群被全歼或虫巢被剿灭，系统也不会代为自作聪明解除警报。警报的撤销将完全服从你在 UI 界面上的‘手动解除’指令，消除自动解除对策略防守产生的干扰。");
             GUI.color = Color.white;
             Text.Font = GameFont.Small;
 
-            listing.Gap(18f);
+            listing.Gap(14f);
 
             // 2. 禁用休眠过滤判定开关
             listing.CheckboxLabeled(
@@ -98,6 +110,22 @@ namespace AAAAManualModeFix
             Text.Font = GameFont.Tiny;
             GUI.color = Color.gray;
             listing.Label("介绍：原版 AAAA 模组中，如果开启了防守威胁判定，模组会过滤掉处于休眠（Dormant）状态的机械人，使其在沉睡时不触发避难警报。启用该补丁开关后，模组将退回最安全的判定机制，把刚空投落地但仍在沉睡的机械集群无条件判定为致命威胁，并立刻全自动拉响避难警报，为殖民地整装迎敌争取最多时间。");
+            GUI.color = Color.white;
+            Text.Font = GameFont.Small;
+
+            listing.Gap(14f);
+
+            // 3. 反隐雷达避难联动开关
+            listing.CheckboxLabeled(
+                "[联动] 启用反隐雷达与避难警报自动化联动", 
+                ref Settings.enableRadarLinkage,
+                "当进入避难警报时自动开启全图反隐雷达；当解除避难警报时自动将其关闭以节省资源。"
+            );
+            listing.Gap(4f);
+
+            Text.Font = GameFont.Tiny;
+            GUI.color = Color.gray;
+            listing.Label("介绍：开启该联动后，补丁将动态监视你建造的反隐雷达（包含机械人 Praetor 的移动雷达）。当 AAAA 警报拉响或进入手动避难时，全图所有雷达将自动紧急开机探测隐形怪；当避难解除、警报平息后，雷达将自动转为休眠关机状态，省去你手动切换的繁琐，并在日常运营中最大限度节约电能。");
             GUI.color = Color.white;
             Text.Font = GameFont.Small;
 
@@ -126,19 +154,16 @@ namespace AAAAManualModeFix
         {
             try
             {
-                // 如果用户在设置中关闭了该修复，直接放行
                 if (!ManualModeFixMod.Settings.enableAutoRecoveryFix)
                 {
                     return true;
                 }
 
-                // 判断 AAAA 模组是否开启了手动模式
                 if (!IsManualOnlyModeEnabled())
                 {
                     return true;
                 }
 
-                // 分析调用栈，检测是否属于威胁解除时发起的“自动解除”
                 var stackTrace = new StackTrace();
                 for (int i = 2; i < stackTrace.FrameCount; i++)
                 {
@@ -153,7 +178,6 @@ namespace AAAAManualModeFix
                         typeName.Contains("Patch_LordJob_MechanoidDefendBase") || 
                         typeName.Contains("Patch_HiveUtility"))
                     {
-                        // 处于手动模式下且判定为自动剿灭解除，直接强行拦截！
                         return false;
                     }
                 }
@@ -164,6 +188,17 @@ namespace AAAAManualModeFix
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// 后置拦截：解除避难警报时自动将雷达关闭
+        /// </summary>
+        public static void Postfix(Map map)
+        {
+            if (ManualModeFixMod.Settings.enableRadarLinkage && map != null)
+            {
+                RadarLinkageUtility.SetAllRadarsState(map, false);
+            }
         }
 
         private static bool IsManualOnlyModeEnabled()
@@ -188,23 +223,88 @@ namespace AAAAManualModeFix
     }
 
     /// <summary>
+    /// 进入避难警报的 Harmony 后置补丁
+    /// </summary>
+    public static class AllowedAreaChangeDangerModePatch
+    {
+        /// <summary>
+        /// 后置拦截：拉响避难警报时自动开启雷达
+        /// </summary>
+        public static void Postfix(Map map)
+        {
+            if (ManualModeFixMod.Settings.enableRadarLinkage && map != null)
+            {
+                RadarLinkageUtility.SetAllRadarsState(map, true);
+            }
+        }
+    }
+
+    /// <summary>
     /// 强行禁用原模组对休眠机械过滤的 Harmony 补丁类
-    /// 核心设计：拦截原模组的 Patch 自身，使其不执行过滤代码，完美让控制权回传到原版检测逻辑
     /// </summary>
     public static class DisableDormantFilterPatch
     {
         public static bool Prefix(ref bool __result)
         {
-            // 如果用户在设置中开启了“禁用休眠过滤”
             if (ManualModeFixMod.Settings.disableDormantFilter)
             {
-                // 直接返回 false，强行掐断 AAAA 模组 Prefix 的执行！
-                // 这将完美使 AAAA 原模组对 DangerWatcher.AffectsStoryDanger 的过滤失效，
-                // 让 RimWorld 核心原版逻辑顺利执行，从而把所有休眠机械判定为实际威胁，触发自动避难。
                 return false;
             }
+            return true;
+        }
+    }
 
-            return true; // 否则放行，让 AAAA 原模组正常处理过滤
+    /// <summary>
+    /// 处理反隐雷达联动的辅助工具类
+    /// </summary>
+    public static class RadarLinkageUtility
+    {
+        /// <summary>
+        /// 遍历全图所有的 ThingWithComps 实体，搜寻反隐雷达组件并动态变更其开关状态
+        /// </summary>
+        public static void SetAllRadarsState(Map map, bool state)
+        {
+            if (map?.listerThings?.AllThings == null)
+            {
+                return;
+            }
+
+            int count = 0;
+            try
+            {
+                var allThings = map.listerThings.AllThings;
+                for (int i = 0; i < allThings.Count; i++)
+                {
+                    var thing = allThings[i];
+                    if (thing is ThingWithComps thingWithComps && thingWithComps.AllComps != null)
+                    {
+                        var comps = thingWithComps.AllComps;
+                        for (int j = 0; j < comps.Count; j++)
+                        {
+                            var comp = comps[j];
+                            if (comp.GetType().FullName == "NCL.CompAntiInvisibilityField" || 
+                                comp.GetType().FullName == "CompAntiInvisibilityField")
+                            {
+                                var field = comp.GetType().GetField("isActivated", BindingFlags.NonPublic | BindingFlags.Instance);
+                                if (field != null)
+                                {
+                                    field.SetValue(comp, state);
+                                    count++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning($"[AAAAManualModeFix] 执行反隐雷达自动联动状态设定时发生异常: {ex}");
+            }
+
+            if (count > 0)
+            {
+                Log.Message($"[AAAAManualModeFix] 避难状态发生改变 -> 已将该地图的 {count} 个反隐雷达设备设置为：{(state ? "【开启】" : "【关闭】")} 状态。");
+            }
         }
     }
 }
