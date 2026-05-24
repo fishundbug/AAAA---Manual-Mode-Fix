@@ -25,30 +25,45 @@ namespace AAAAManualModeFix
                 var watcherType = AccessTools.TypeByName("seekiworks_AllowedAreaAutomaticAdapter.Watcher");
                 if (watcherType != null)
                 {
-                    // 1. 动态注册：手动模式自动解除 Bug 修复补丁 + 警报解除雷达联动
+                    // 1. 动态注册：AllowedAreaChangeNormalMode 拦截与雷达解除避难联动补丁
                     var normalModeMethod = AccessTools.Method(watcherType, "AllowedAreaChangeNormalMode");
                     if (normalModeMethod != null)
                     {
-                        var prefixMethod = AccessTools.Method(typeof(AllowedAreaChangeNormalModePatch), nameof(AllowedAreaChangeNormalModePatch.Prefix));
-                        var postfixMethod = AccessTools.Method(typeof(AllowedAreaChangeNormalModePatch), nameof(AllowedAreaChangeNormalModePatch.Postfix));
-                        harmony.Patch(normalModeMethod, 
-                            prefix: new HarmonyMethod(prefixMethod),
-                            postfix: new HarmonyMethod(postfixMethod)
-                        );
-                        Log.Message("[AAAAManualModeFix] 成功应用：手动避难自动解除修复与解除避难雷达联动补丁。");
+                        var prefix = AccessTools.Method(typeof(AllowedAreaChangeNormalModePatch), nameof(AllowedAreaChangeNormalModePatch.Prefix));
+                        var postfix = AccessTools.Method(typeof(AllowedAreaChangeNormalModePatch), nameof(AllowedAreaChangeNormalModePatch.Postfix));
+                        harmony.Patch(normalModeMethod, prefix: new HarmonyMethod(prefix), postfix: new HarmonyMethod(postfix));
                     }
 
-                    // 2. 动态注册：进入避难雷达联动补丁
+                    // 2. 动态注册：进入避难警报雷达开启联动补丁
                     var dangerModeMethod = AccessTools.Method(watcherType, "AllowedAreaChangeDangerMode");
                     if (dangerModeMethod != null)
                     {
                         var dangerPostfix = AccessTools.Method(typeof(AllowedAreaChangeDangerModePatch), nameof(AllowedAreaChangeDangerModePatch.Postfix));
                         harmony.Patch(dangerModeMethod, postfix: new HarmonyMethod(dangerPostfix));
-                        Log.Message("[AAAAManualModeFix] 成功应用：进入避难雷达联动补丁。");
                     }
+
+                    // 3. 动态注册：对 AAAA 内部自动解除入口进行监控，代替耗时的 StackTrace 漫游
+                    var takeInventoryMethod = AccessTools.Method(watcherType, "TakeInventory");
+                    BindAutoClearFlags(harmony, takeInventoryMethod);
                 }
 
-                // 3. 动态注册：禁用休眠过滤拦截补丁 (拦截原模组的 Patch 自身)
+                // 4. 动态注册 AAAA 机械剿灭 Patch 入口监测
+                var mechDefeatPatchType = AccessTools.TypeByName("seekiworks_AllowedAreaAutomaticAdapter.Patch_LordJob_MechanoidDefendBase");
+                if (mechDefeatPatchType != null)
+                {
+                    var onDefeatPostfix = AccessTools.Method(mechDefeatPatchType, "OnDefeat_Postfix");
+                    BindAutoClearFlags(harmony, onDefeatPostfix);
+                }
+
+                // 5. 动态注册 AAAA 虫巢被歼 Patch 入口监测
+                var hiveCountPatchType = AccessTools.TypeByName("seekiworks_AllowedAreaAutomaticAdapter.Patch_HiveUtility");
+                if (hiveCountPatchType != null)
+                {
+                    var countPostfix = AccessTools.Method(hiveCountPatchType, "TotalSpawnedHivesCount_Postfix");
+                    BindAutoClearFlags(harmony, countPostfix);
+                }
+
+                // 6. 动态注册：禁用休眠过滤拦截补丁 (拦截原模组的 Patch 自身)
                 var dangerWatcherPatchType = AccessTools.TypeByName("seekiworks_AllowedAreaAutomaticAdapter.Patch_DangerWatcher");
                 if (dangerWatcherPatchType != null)
                 {
@@ -57,7 +72,6 @@ namespace AAAAManualModeFix
                     {
                         var disableDormantPrefix = AccessTools.Method(typeof(DisableDormantFilterPatch), nameof(DisableDormantFilterPatch.Prefix));
                         harmony.Patch(affectsStoryDangerPrefix, prefix: new HarmonyMethod(disableDormantPrefix));
-                        Log.Message("[AAAAManualModeFix] 成功应用：禁用休眠过滤拦截补丁。");
                     }
                 }
             }
@@ -68,16 +82,21 @@ namespace AAAAManualModeFix
         }
 
         /// <summary>
-        /// 设置页面标题
+        /// 将指定的方法绑定高效率的自动解除执行上下文标志 (Prefix 置 true, Postfix 置 false)
         /// </summary>
+        private void BindAutoClearFlags(Harmony harmony, MethodInfo targetMethod)
+        {
+            if (targetMethod == null) return;
+            var flagPrefix = AccessTools.Method(typeof(AutoClearContextTracker), nameof(AutoClearContextTracker.Prefix));
+            var flagPostfix = AccessTools.Method(typeof(AutoClearContextTracker), nameof(AutoClearContextTracker.Postfix));
+            harmony.Patch(targetMethod, prefix: new HarmonyMethod(flagPrefix), postfix: new HarmonyMethod(flagPostfix));
+        }
+
         public override string SettingsCategory()
         {
             return "[AAAA] Manual Mode Fix";
         }
 
-        /// <summary>
-        /// 绘制模组设置界面
-        /// </summary>
         public override void DoSettingsWindowContents(Rect inRect)
         {
             var listing = new Listing_Standard();
@@ -132,13 +151,28 @@ namespace AAAAManualModeFix
             listing.End();
         }
 
-        /// <summary>
-        /// 保存设置
-        /// </summary>
         public override void WriteSettings()
         {
             base.WriteSettings();
             Log.Message("[AAAAManualModeFix] 模组设置已保存并生效。");
+        }
+    }
+
+    /// <summary>
+    /// 自动清除执行上下文监控器 (取代 StackTrace 的高性能核心)
+    /// </summary>
+    public static class AutoClearContextTracker
+    {
+        public static bool isAutoClearing = false;
+
+        public static void Prefix()
+        {
+            isAutoClearing = true;
+        }
+
+        public static void Postfix()
+        {
+            isAutoClearing = false;
         }
     }
 
@@ -159,27 +193,16 @@ namespace AAAAManualModeFix
                     return true;
                 }
 
+                // 判断 AAAA 模组是否开启了手动模式
                 if (!IsManualOnlyModeEnabled())
                 {
                     return true;
                 }
 
-                var stackTrace = new StackTrace();
-                for (int i = 2; i < stackTrace.FrameCount; i++)
+                // 在手动模式下，且监控到当前正处于“自动解除上下文”期间，执行瞬间拦截！
+                if (AutoClearContextTracker.isAutoClearing)
                 {
-                    var frame = stackTrace.GetFrame(i);
-                    var method = frame?.GetMethod();
-                    if (method == null) continue;
-
-                    string typeName = method.DeclaringType?.FullName ?? "";
-                    string methodName = method.Name;
-
-                    if (methodName == "TakeInventory" || 
-                        typeName.Contains("Patch_LordJob_MechanoidDefendBase") || 
-                        typeName.Contains("Patch_HiveUtility"))
-                    {
-                        return false;
-                    }
+                    return false; // 高性能常数级 $O(1)$ 拦截，零性能抖动！
                 }
             }
             catch (Exception ex)
@@ -250,47 +273,56 @@ namespace AAAAManualModeFix
             {
                 return false;
             }
+
             return true;
         }
     }
 
     /// <summary>
     /// 处理反隐雷达联动的辅助工具类
+    /// 极致性能优化版：仅精准扫描极少数特定目标，将扫描开销直接降为微秒级
     /// </summary>
     public static class RadarLinkageUtility
     {
+        private const string TargetBuildingDefName = "NCL_Overwatch_Nexus";
+
         /// <summary>
-        /// 遍历全图所有的 ThingWithComps 实体，搜寻反隐雷达组件并动态变更其开关状态
+        /// 精准且无 Bug 的联动设定
         /// </summary>
         public static void SetAllRadarsState(Map map, bool state)
         {
-            if (map?.listerThings?.AllThings == null)
-            {
-                return;
-            }
+            if (map == null) return;
 
             int count = 0;
             try
             {
-                var allThings = map.listerThings.AllThings;
-                for (int i = 0; i < allThings.Count; i++)
+                // 1. 精准处理玩家拥有的雷达建筑 (仅在 map.listerBuildings.allBuildingsColonist 中匹配 NCL_Overwatch_Nexus)
+                if (map.listerBuildings != null && map.listerBuildings.allBuildingsColonist != null)
                 {
-                    var thing = allThings[i];
-                    if (thing is ThingWithComps thingWithComps && thingWithComps.AllComps != null)
+                    var colonistBuildings = map.listerBuildings.allBuildingsColonist;
+                    for (int i = 0; i < colonistBuildings.Count; i++)
                     {
-                        var comps = thingWithComps.AllComps;
-                        for (int j = 0; j < comps.Count; j++)
+                        var b = colonistBuildings[i];
+                        if (b != null && b.def?.defName == TargetBuildingDefName)
                         {
-                            var comp = comps[j];
-                            if (comp.GetType().FullName == "NCL.CompAntiInvisibilityField" || 
-                                comp.GetType().FullName == "CompAntiInvisibilityField")
+                            if (ProcessThing(b, state)) count++;
+                        }
+                    }
+                }
+
+                // 2. 精准处理玩家拥有的机械人/宠物 (仅在玩家阵营的 Spawned 列表中检索，排除野兽和敌军)
+                if (map.mapPawns != null)
+                {
+                    var playerFaction = RimWorld.Faction.OfPlayer;
+                    var playerPawns = map.mapPawns.SpawnedPawnsInFaction(playerFaction);
+                    if (playerPawns != null)
+                    {
+                        for (int i = 0; i < playerPawns.Count; i++)
+                        {
+                            var pawn = playerPawns[i];
+                            if (pawn != null)
                             {
-                                var field = comp.GetType().GetField("isActivated", BindingFlags.NonPublic | BindingFlags.Instance);
-                                if (field != null)
-                                {
-                                    field.SetValue(comp, state);
-                                    count++;
-                                }
+                                if (ProcessThing(pawn, state)) count++;
                             }
                         }
                     }
@@ -298,13 +330,36 @@ namespace AAAAManualModeFix
             }
             catch (Exception ex)
             {
-                Log.Warning($"[AAAAManualModeFix] 执行反隐雷达自动联动状态设定时发生异常: {ex}");
+                Log.Warning($"[AAAAManualModeFix] 雷达联动状态设定时发生异常: {ex}");
             }
 
             if (count > 0)
             {
-                Log.Message($"[AAAAManualModeFix] 避难状态发生改变 -> 已将该地图的 {count} 个反隐雷达设备设置为：{(state ? "【开启】" : "【关闭】")} 状态。");
+                Log.Message($"[AAAAManualModeFix] 避难警报切换 -> 已将 {count} 台玩家反隐雷达自动设定为：{(state ? "【开启】" : "【关闭】")}");
             }
+        }
+
+        private static bool ProcessThing(Thing thing, bool state)
+        {
+            if (thing is ThingWithComps thingWithComps && thingWithComps.AllComps != null)
+            {
+                var comps = thingWithComps.AllComps;
+                for (int j = 0; j < comps.Count; j++)
+                {
+                    var comp = comps[j];
+                    if (comp.GetType().FullName == "NCL.CompAntiInvisibilityField" || 
+                        comp.GetType().FullName == "CompAntiInvisibilityField")
+                    {
+                        var field = comp.GetType().GetField("isActivated", BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (field != null)
+                        {
+                            field.SetValue(comp, state);
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
         }
     }
 }
