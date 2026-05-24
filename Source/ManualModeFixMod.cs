@@ -271,6 +271,9 @@ namespace AAAAManualModeFix
         {
             if (ManualModeFixMod.Settings.disableDormantFilter)
             {
+                // 让 AAAA 的 Prefix 返回 true，从而指示 Harmony 继续执行原版的 DangerWatcher.AffectsStoryDanger
+                __result = true; 
+                // 拦截 AAAA 的 Prefix，跳过它自身的休眠判断逻辑
                 return false;
             }
 
