@@ -1,0 +1,5 @@
+D:\Programming\AAAA - Manual Mode Fix\Assemblies\ManualModeFix.dll
+D:\Programming\AAAA - Manual Mode Fix\Source\obj\Debug\ManualModeFix.csproj.AssemblyReference.cache
+D:\Programming\AAAA - Manual Mode Fix\Source\obj\Debug\ManualModeFix.GeneratedMSBuildEditorConfig.editorconfig
+D:\Programming\AAAA - Manual Mode Fix\Source\obj\Debug\ManualModeFix.csproj.CoreCompileInputs.cache
+D:\Programming\AAAA - Manual Mode Fix\Source\obj\Debug\ManualModeFix.dll

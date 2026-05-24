@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ 
+   <PropertyGroup>
+     <TargetFramework>net472</TargetFramework>
+     <LangVersion>latest</LangVersion>
+     <OutputPath>../Assemblies/</OutputPath>
+     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+     <DebugType>none</DebugType>
+     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+   </PropertyGroup>
+ 
+   <!-- 
+     RimWorld 安装路径解析优先级：
+     1. 环境变量 RIMWORLD_DIR
+     2. 本地 user.props 文件（已被 .gitignore）
+     3. 默认常见路径
+   -->
+   <Import Project="user.props" Condition="Exists('user.props')" />
+   <PropertyGroup Condition="'$(RimWorldPath)' == ''">
+     <RimWorldPath>$(RIMWORLD_DIR)</RimWorldPath>
+   </PropertyGroup>
+   <PropertyGroup Condition="'$(RimWorldPath)' == ''">
+     <RimWorldPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld</RimWorldPath>
+   </PropertyGroup>
+   <PropertyGroup>
+     <ManagedPath>$(RimWorldPath)\RimWorldWin64_Data\Managed</ManagedPath>
+   </PropertyGroup>
+ 
+   <ItemGroup>
+     <Reference Include="Assembly-CSharp">
+       <HintPath>$(ManagedPath)\Assembly-CSharp.dll</HintPath>
+       <Private>false</Private>
+     </Reference>
+     <Reference Include="UnityEngine.CoreModule">
+       <HintPath>$(ManagedPath)\UnityEngine.CoreModule.dll</HintPath>
+       <Private>false</Private>
+     </Reference>
+   </ItemGroup>
+ 
+   <ItemGroup>
+     <PackageReference Include="Lib.Harmony" Version="2.3.3" PrivateAssets="all" ExcludeAssets="runtime" />
+   </ItemGroup>
+ 
+ </Project>

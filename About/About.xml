@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+  <name>[AAAA] Manual Mode - Auto Recovery Fix</name>
+  <author>fishundbug</author>
+  <packageId>fishundbug.AAAAManualModeFix</packageId>
+  <supportedVersions>
+    <li>1.5</li>
+    <li>1.6</li>
+  </supportedVersions>
+  <modDependencies>
+    <li>
+      <packageId>brrainz.harmony</packageId>
+      <displayName>Harmony</displayName>
+      <downloadUrl>https://github.com/pardeike/HarmonyRimWorld/releases/latest</downloadUrl>
+    </li>
+    <li>
+      <packageId>seekiworksmod.no17</packageId>
+      <displayName>AAAA(Allowed Area Automatic Adapter)</displayName>
+    </li>
+  </modDependencies>
+  <loadAfter>
+    <li>brrainz.harmony</li>
+    <li>seekiworksmod.no17</li>
+  </loadAfter>
+  <description>完美修复 AAAA 模组在开启“手动避难模式”时，依然会在袭击消除/机械虫巢被歼灭后自动解除避难的逻辑设计漏洞。
+
+应用本补丁后，开启手动模式时，警报解除将不再擅自将小人拉回原活动区域，只有在玩家手动点击按钮解除时才会生效。
+
+需要加载在 Harmony 和 AAAA(Allowed Area Automatic Adapter) 之后。</description>
+</ModMetaData>
