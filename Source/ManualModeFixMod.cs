@@ -277,6 +277,10 @@ namespace AAAAManualModeFix
     /// </summary>
     public static class MechClusterArrivalFallbackPatch
     {
+        private const int MapTriggerCooldownTicks = 300;
+        private static readonly HashSet<string> TriggeredEvents = new HashSet<string>();
+        private static readonly Dictionary<int, int> LastTriggeredTickByMap = new Dictionary<int, int>();
+
         public static void Postfix(DropPodIncoming __instance)
         {
             try
@@ -297,9 +301,26 @@ namespace AAAAManualModeFix
                     return;
                 }
 
+                int currentTick = Find.TickManager?.TicksGame ?? -1;
+                if (currentTick >= 0 && LastTriggeredTickByMap.TryGetValue(map.uniqueID, out int lastTick) && currentTick - lastTick < MapTriggerCooldownTicks)
+                {
+                    return;
+                }
+
+                string eventKey = BuildEventKey(__instance, map);
+                if (!TriggeredEvents.Add(eventKey))
+                {
+                    return;
+                }
+
                 if (!MapHasHostileMechanoids(map))
                 {
                     return;
+                }
+
+                if (currentTick >= 0)
+                {
+                    LastTriggeredTickByMap[map.uniqueID] = currentTick;
                 }
 
                 TriggerAAAAAlert(map);
@@ -310,6 +331,14 @@ namespace AAAAManualModeFix
                 Log.Warning("[AAAAManualModeFix] 机械集群落地兜底补丁执行异常: " + ex);
             }
         }
+
+        private static string BuildEventKey(DropPodIncoming dropPod, Map map)
+        {
+            var defName = dropPod?.def?.defName ?? "unknown";
+            var position = ((Thing)dropPod).Position;
+            return $"{map.uniqueID}:{defName}:{position.x}:{position.z}";
+        }
+
 
         private static void TriggerAAAAAlert(Map map)
         {
