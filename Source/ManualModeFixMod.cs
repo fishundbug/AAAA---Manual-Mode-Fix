@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Diagnostics;
 using UnityEngine;
 using Verse;
+using RimWorld;
 using HarmonyLib;
 
 namespace AAAAManualModeFix
@@ -63,7 +65,15 @@ namespace AAAAManualModeFix
                     BindAutoClearFlags(harmony, countPostfix);
                 }
 
-                // 6. 动态注册：禁用休眠过滤拦截补丁 (拦截原模组的 Patch 自身)
+                // 6. 机械集群落地兜底：不依赖 AAAA 内部的落点判定，直接在落地后强制触发一次避难警报
+                var spawnThingsMethod = AccessTools.Method(typeof(DropPodIncoming), "SpawnThings");
+                if (spawnThingsMethod != null)
+                {
+                    var spawnThingsPostfix = AccessTools.Method(typeof(MechClusterArrivalFallbackPatch), nameof(MechClusterArrivalFallbackPatch.Postfix));
+                    harmony.Patch(spawnThingsMethod, postfix: new HarmonyMethod(spawnThingsPostfix));
+                }
+
+                // 7. 动态注册：禁用休眠过滤拦截补丁 (拦截原模组的 Patch 自身)
                 var dangerWatcherPatchType = AccessTools.TypeByName("seekiworks_AllowedAreaAutomaticAdapter.Patch_DangerWatcher");
                 if (dangerWatcherPatchType != null)
                 {
@@ -259,6 +269,119 @@ namespace AAAAManualModeFix
             {
                 RadarLinkageUtility.SetAllRadarsState(map, true);
             }
+        }
+    }
+
+    /// <summary>
+    /// 机械集群落地兜底补丁：在 AAAA 漏判时，落地后强制触发一次避难警报
+    /// </summary>
+    public static class MechClusterArrivalFallbackPatch
+    {
+        public static void Postfix(DropPodIncoming __instance)
+        {
+            try
+            {
+                if (__instance == null || ManualModeFixMod.Settings == null || !ManualModeFixMod.Settings.disableDormantFilter)
+                {
+                    return;
+                }
+
+                var map = ((Thing)__instance).Map;
+                if (map == null)
+                {
+                    return;
+                }
+
+                if (!LooksLikeMechanoidCluster(__instance))
+                {
+                    return;
+                }
+
+                if (!MapHasHostileMechanoids(map))
+                {
+                    return;
+                }
+
+                TriggerAAAAAlert(map);
+                Log.Message($"[AAAAManualModeFix] 机械集群落地兜底已触发避难警报：map={map.uniqueID}");
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("[AAAAManualModeFix] 机械集群落地兜底补丁执行异常: " + ex);
+            }
+        }
+
+        private static void TriggerAAAAAlert(Map map)
+        {
+            var watcherType = AccessTools.TypeByName("seekiworks_AllowedAreaAutomaticAdapter.Watcher");
+            if (watcherType == null)
+            {
+                Log.Warning("[AAAAManualModeFix] 未找到 AAAA Watcher 类型，无法触发机械集群兜底警报。");
+                return;
+            }
+
+            var mechClusterDictField = watcherType.GetField("MechanoidClusterDictionary", BindingFlags.Public | BindingFlags.Static);
+            if (mechClusterDictField != null)
+            {
+                var dict = mechClusterDictField.GetValue(null) as IDictionary<int, bool>;
+                if (dict != null)
+                {
+                    dict[map.uniqueID] = true;
+                }
+            }
+
+            var dangerModeMethod = watcherType.GetMethod("AllowedAreaChangeDangerMode", BindingFlags.Public | BindingFlags.Static);
+            if (dangerModeMethod != null)
+            {
+                dangerModeMethod.Invoke(null, new object[] { map });
+                return;
+            }
+
+            Log.Warning("[AAAAManualModeFix] 未找到 AAAA AllowedAreaChangeDangerMode 方法，无法触发机械集群兜底警报。");
+        }
+
+        private static bool LooksLikeMechanoidCluster(DropPodIncoming dropPod)
+        {
+            var defName = dropPod?.def?.defName;
+            if (!string.IsNullOrEmpty(defName) && defName.IndexOf("Mech", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            if (dropPod?.innerContainer != null)
+            {
+                for (int i = 0; i < dropPod.innerContainer.Count; i++)
+                {
+                    var thing = dropPod.innerContainer[i];
+                    if (thing is Pawn pawn && pawn.RaceProps?.IsMechanoid == true)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool MapHasHostileMechanoids(Map map)
+        {
+            if (map?.mapPawns?.AllPawnsSpawned == null)
+            {
+                return false;
+            }
+
+            var playerFaction = Faction.OfPlayer;
+            var pawns = map.mapPawns.AllPawnsSpawned;
+            for (int i = 0; i < pawns.Count; i++)
+            {
+                var pawn = pawns[i];
+                if (pawn != null && pawn.RaceProps?.IsMechanoid == true && pawn.Faction != null && pawn.Faction.HostileTo(playerFaction))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 
