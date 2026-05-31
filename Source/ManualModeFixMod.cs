@@ -278,8 +278,13 @@ namespace AAAAManualModeFix
     public static class MechClusterArrivalFallbackPatch
     {
         private const int MapTriggerCooldownTicks = 300;
-        private static readonly HashSet<string> TriggeredEvents = new HashSet<string>();
+        private const int EventKeyKeepTicks = 600;
+        private static readonly Dictionary<string, int> TriggeredEvents = new Dictionary<string, int>();
         private static readonly Dictionary<int, int> LastTriggeredTickByMap = new Dictionary<int, int>();
+        private static Type cachedWatcherType;
+        private static PropertyInfo cachedMechClusterDictProperty;
+        private static MethodInfo cachedDangerModeMethod;
+        private static bool cachedReflectionResolved;
 
         public static void Postfix(DropPodIncoming __instance)
         {
@@ -307,10 +312,17 @@ namespace AAAAManualModeFix
                     return;
                 }
 
+                CleanupOldEventKeys(currentTick);
+
                 string eventKey = BuildEventKey(__instance, map);
-                if (!TriggeredEvents.Add(eventKey))
+                if (TriggeredEvents.TryGetValue(eventKey, out int eventTick) && currentTick >= 0 && currentTick - eventTick < EventKeyKeepTicks)
                 {
                     return;
+                }
+
+                if (currentTick >= 0)
+                {
+                    TriggeredEvents[eventKey] = currentTick;
                 }
 
                 if (!MapHasHostileMechanoids(map))
@@ -332,41 +344,82 @@ namespace AAAAManualModeFix
             }
         }
 
-        private static string BuildEventKey(DropPodIncoming dropPod, Map map)
+        private static void CleanupOldEventKeys(int currentTick)
         {
-            var defName = dropPod?.def?.defName ?? "unknown";
-            var position = ((Thing)dropPod).Position;
-            return $"{map.uniqueID}:{defName}:{position.x}:{position.z}";
-        }
+            if (currentTick < 0 || TriggeredEvents.Count == 0)
+            {
+                return;
+            }
 
+            if (TriggeredEvents.Count < 64)
+            {
+                return;
+            }
+
+            var keysToRemove = new List<string>();
+            foreach (var kvp in TriggeredEvents)
+            {
+                if (currentTick - kvp.Value >= EventKeyKeepTicks)
+                {
+                    keysToRemove.Add(kvp.Key);
+                }
+            }
+
+            for (int i = 0; i < keysToRemove.Count; i++)
+            {
+                TriggeredEvents.Remove(keysToRemove[i]);
+            }
+        }
 
         private static void TriggerAAAAAlert(Map map)
         {
-            var watcherType = AccessTools.TypeByName("seekiworks_AllowedAreaAutomaticAdapter.Watcher");
-            if (watcherType == null)
+            EnsureReflectionCache();
+            if (cachedWatcherType == null)
             {
                 Log.Warning("[AAAAManualModeFix] 未找到 AAAA Watcher 类型，无法触发机械集群兜底警报。");
                 return;
             }
 
-            var mechClusterDictProperty = watcherType.GetProperty("MechanoidClusterDictionary", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
-            if (mechClusterDictProperty != null)
+            if (cachedMechClusterDictProperty != null)
             {
-                var dict = mechClusterDictProperty.GetValue(null, null) as IDictionary<int, bool>;
+                var dict = cachedMechClusterDictProperty.GetValue(null, null) as IDictionary<int, bool>;
                 if (dict != null)
                 {
                     dict[map.uniqueID] = true;
                 }
             }
 
-            var dangerModeMethod = watcherType.GetMethod("AllowedAreaChangeDangerMode", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
-            if (dangerModeMethod != null)
+            if (cachedDangerModeMethod != null)
             {
-                dangerModeMethod.Invoke(null, new object[] { map });
+                cachedDangerModeMethod.Invoke(null, new object[] { map });
                 return;
             }
 
             Log.Warning("[AAAAManualModeFix] 未找到 AAAA AllowedAreaChangeDangerMode 方法，无法触发机械集群兜底警报。");
+        }
+
+        private static void EnsureReflectionCache()
+        {
+            if (cachedReflectionResolved)
+            {
+                return;
+            }
+
+            cachedWatcherType = AccessTools.TypeByName("seekiworks_AllowedAreaAutomaticAdapter.Watcher");
+            if (cachedWatcherType != null)
+            {
+                cachedMechClusterDictProperty = cachedWatcherType.GetProperty("MechanoidClusterDictionary", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
+                cachedDangerModeMethod = cachedWatcherType.GetMethod("AllowedAreaChangeDangerMode", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
+            }
+
+            cachedReflectionResolved = true;
+        }
+
+        private static string BuildEventKey(DropPodIncoming dropPod, Map map)
+        {
+            var defName = dropPod?.def?.defName ?? "unknown";
+            var position = ((Thing)dropPod).Position;
+            return $"{map.uniqueID}:{defName}:{position.x}:{position.z}";
         }
 
         private static bool LooksLikeMechanoidCluster(DropPodIncoming dropPod)
