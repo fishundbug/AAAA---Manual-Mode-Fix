@@ -320,17 +320,17 @@ namespace AAAAManualModeFix
                 return;
             }
 
-            var mechClusterDictField = watcherType.GetField("MechanoidClusterDictionary", BindingFlags.Public | BindingFlags.Static);
-            if (mechClusterDictField != null)
+            var mechClusterDictProperty = watcherType.GetProperty("MechanoidClusterDictionary", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
+            if (mechClusterDictProperty != null)
             {
-                var dict = mechClusterDictField.GetValue(null) as IDictionary<int, bool>;
+                var dict = mechClusterDictProperty.GetValue(null, null) as IDictionary<int, bool>;
                 if (dict != null)
                 {
                     dict[map.uniqueID] = true;
                 }
             }
 
-            var dangerModeMethod = watcherType.GetMethod("AllowedAreaChangeDangerMode", BindingFlags.Public | BindingFlags.Static);
+            var dangerModeMethod = watcherType.GetMethod("AllowedAreaChangeDangerMode", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
             if (dangerModeMethod != null)
             {
                 dangerModeMethod.Invoke(null, new object[] { map });
